@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: HaskellForMaths-0.4.9@sha256:96f682ccc369ca71538d49ab6a91a085a7d35e39e29ccc8b0f2ee878c1887b91,4342
+    pantry-tree:
+      size: 6674
+      sha256: cc3b461a071fdcccf72c409d2f884fabe7ca283276f53c77bf11598ef6462d6d
+  original:
+    hackage: HaskellForMaths-0.4.9
 snapshots:
 - completed:
     size: 491372
