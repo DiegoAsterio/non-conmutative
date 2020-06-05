@@ -1,13 +1,17 @@
-{-# LANGUAGE MultiParamTypeClasses, ScopedTypeVariables #-}
+{-# LANGUAGE MultiParamTypeClasses, TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances #-}
 
 
 module Math.NonConm.OrePolys where
 import Prelude hiding ( (*>) )
 
+-- Debuggers
 import Debug.Trace
+import Test.QuickCheck
 
 import Math.Core.Field
 import Math.Algebras.VectorSpace
+
+import Math.Field.Extending
 
 type AUT s = (s -> s)
 
@@ -22,19 +26,19 @@ power s n = (\x -> iterate s x !! n)
 newtype Monomial = M (Maybe Int)
   deriving (Eq, Ord)
 
-showSummand :: Monomial -> String
-showSummand m = case m of
+showMon :: Monomial -> String
+showMon m = case m of
                 M Nothing  -> "0"
-                M (Just n) -> showTs n
+                M (Just n) -> showVar 'T' n
 
-showTs :: Int -> String
-showTs n
+showVar :: Char -> Int -> String
+showVar c n
   | n==0 = "1"
-  | n==1 = "T"
-  | otherwise = "T^" ++ show n
+  | n==1 = [c]
+  | otherwise = [c] ++ show n
 
 instance Show Monomial where
-  show = showSummand
+  show = showMon 
 
 unit :: -- 1
   Monomial 
@@ -91,124 +95,133 @@ data TwistedPoly d poly = TP (Vect d (Monomial)) deriving (Eq, Ord)
 instance (Show d, Eq d, Num d) => Show (TwistedPoly d poly) where
   show (TP f) = show f
 
-multiplyLists :: -- Multiply two lists, each list represents a twisted polynomial
-  (Num k) =>
-  AUT k -> -- Automorphism s
-  [(Monomial,k)] -> -- Fst polynomial f1
-  [(Monomial,k)] -> -- Snd polynomial f2
-  [(Monomial,k)] -- Result: f1*f2
-multiplyLists s l1 l2 = f <$> l1 <*> l2
+multL :: -- Multiply two lists, each list represents a twisted polynomial
+  (Num d) =>
+  AUT d -> -- Automorphism s
+  [(Monomial,d)] -> -- Fst polynomial f1
+  [(Monomial,d)] -> -- Snd polynomial f2
+  [(Monomial,d)] -- Result: f1*f2
+multL s l1 l2 = filter (not . mzeroq . fst) $ f <$> l1 <*> l2
   where f (x1,k1) (x2,k2) = let s' = power s (mdeg x1)
-                            in (mmult x1 x2,k1*(s' k2))
+                            in  (mmult x1 x2,k1*(s' k2))
                                
-multPoly :: -- Multiply two twisted polynomials 
+multP :: -- Multiply two twisted polynomials 
   (Num d, Eq d) =>
   AUT d -> -- Automorphism sigma 
   Vect d Monomial -> -- Fst polynomial f
   Vect d Monomial -> -- Snd polynomial g
   Vect d Monomial --    Result: f*g
-multPoly s f g = let V l1 = nf f
-                     V l2 = nf g
-                 in nf $ V $ multiplyLists s l1 l2
+multP s f g = let V l1 = nf f
+                  V l2 = nf g
+              in nf $ V $ multL s l1 l2
 
 instance (Eq d, Fractional d, TwistedPolynomialAsType d poly) => Num (TwistedPoly d poly) where
   TP f + TP g = TP $ f <+> g
   TP f * TP g = let s = sigma (undefined :: (d,poly))
-                in TP $ multPoly s f g
+                in TP $ multP s f g
   negate (TP f) = TP $ negatev f
   fromInteger x = TP $ V [(M (Just 0), fromInteger x)]
   abs _ = error "Prelude.Num.abs: inappropriate abstraction"
   signum _ = error "Prelude.Num.signum: inappropiate abstraction" 
 
--- degreepoly :: -- Degree of a polynomial
---   (Eq k, Num k) =>
---   TwistedPoly k -> -- Polynomial f
---   Int --              Result: deg(f) = n
--- degreepoly f = case nf f of V [] -> -1
---                             V l1 -> maximum $ map (mdeg . fst) l1
+deg :: -- Deg of a polynomial
+  (Eq d, Num d) =>
+  TwistedPoly d poly -> -- Polynomial f
+  Maybe Int --              Result: deg(f) = n
+deg (TP f)= case nf f of V [] -> Nothing
+                         V l1 -> Just $ maximum $ map (mdeg . fst) l1
 
--- degree :: -- Degree of a polynomial
---   (Eq k, Num k) =>
---   TwistedPolySigma k -> -- Polynomial f
---   Int --              Result: deg(f) = n
--- degree = degreepoly . poly
+lt :: -- leader term of a polynomial 
+  (Eq d, Num d) =>
+  TwistedPoly d poly -> -- Polynomial f
+  (Monomial, d) --    Result: (M n, a_n)
+lt (TP f) = let (V l) = nf f
+            in head $ reverse l 
 
--- lt :: -- leader term of a polynomial 
---   (Eq k, Num k) =>
---   TwistedPoly k -> -- Polynomial f
---   (Monomial, k) --    Result: (M n, a_n)
--- lt f = let (V l) = nf f
---        in head $ reverse l 
+lm :: -- leader monomial of a polynomial
+  (Eq d, Num d) =>
+  TwistedPoly d poly -> -- Polynomial f 
+  Monomial --         Result: M n
+lm = fst . lt
 
--- lm :: -- leader monomial of a polynomial
---  (Eq k, Num k) =>
---  TwistedPoly k -> -- Polynomial f 
---  Monomial --         Result: M n
--- lm = fst . lt
+lc :: -- leader coeff. of a polynomial
+  (Eq d, Num d) =>
+  TwistedPoly d poly -> -- Polynomial f
+  d --                Result: a_n
+lc = snd . lt
 
--- lc :: -- leader coeff. of a polynomial
---   (Eq k, Num k) =>
---   TwistedPoly k -> -- Polynomial f
---   k --                Result: a_n
--- lc = snd . lt
+fromd ::
+  (Eq d, Num d) =>
+  d ->
+  TwistedPoly d poly
+fromd d = TP $ V [(M (Just 0), d)]
 
--- lDividePolyQuoRem :: -- Left divide two polynomials
---   (Num k, Eq k, Fractional k) =>
---   AUT k -> --                       Automorphism s
---   TwistedPoly k -> --               First poly.
---   TwistedPoly k -> --               Snd poly.
---   (TwistedPoly k, TwistedPoly k) -- Result (q,r)
--- lDividePolyQuoRem s f g | degreepoly f < degreepoly g = (zerov, f)
---                         | otherwise = ((V l) <+> quo, rem)
---   where mon = mdiv (lm f) (lm g)
---         s' = power s (mdeg mon)
---         l = [(mon, (lc f) * (recip (s' (lc g))))]
---         V lg = g
---         l' = multiplyLists s l lg
---         f' = f <-> (V l')
---         (quo, rem) = lDividePolyQuoRem s f' g
+ldivQR :: -- Left divide two polynomials
+  (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
+  AUT d ->
+  TwistedPoly d poly -> --               First poly.
+  TwistedPoly d poly -> --               Snd poly.
+  (TwistedPoly d poly, TwistedPoly d poly) -- Result (q,r)
+ldivQR s f g | deg f < deg g = (TP zerov, f)
+             | otherwise = (l + quo, rem)
+  where mon = mdiv (lm f) (lm g)
+        s' = power s (mdeg mon)
+        l = TP $ V $ [(mon, (lc f) * (recip (s' (lc g))))]
+        l' = l * g
+        f' = f - l'
+        (quo, rem) = ldivQR s f' g
 
--- lDivideQuo :: -- Left quotient of two polynomials
---   (Num k, Eq k, Fractional k) =>
---   TwistedPolySigma k -> -- Fst polynomial f
---   TwistedPolySigma k -> -- Snd polynomial g
---   TwistedPolySigma k --    Result: f/g
--- lDivideQuo f g = let s = sigma f
---                      fl = poly f
---                      gl = poly g
---                  in TwistedPolySigma {poly = fst $ lDividePolyQuoRem s fl gl, sigma=s}
+ldiv :: -- Left quotient of two polynomials
+  (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
+  AUT d -> 
+  TwistedPoly d poly -> -- Fst polynomial f
+  TwistedPoly d poly -> -- Snd polynomial g
+  TwistedPoly d poly --    Result: f /_l g
+ldiv s f g = let (q,_) = ldivQR s f g
+             in q
 
--- lDivideRem :: -- Left remainder of the two poly.
---   (Num k, Eq k, Fractional k) =>
---   TwistedPolySigma k -> -- Fst polynomial f
---   TwistedPolySigma k -> -- Snd polynomial g
---   TwistedPolySigma k --    Result: f%g
--- lDivideRem f g = let s = sigma f
---                      fl = poly f
---                      gl = poly g
---                  in TwistedPolySigma {poly = snd $ lDividePolyQuoRem s fl gl, sigma=s}
+lrem :: -- Left remainder of two poly.
+  (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
+  AUT d ->
+  TwistedPoly d poly -> -- Fst polynomial f
+  TwistedPoly d poly -> -- Snd polynomial g
+  TwistedPoly d poly --    Result: f %_l g
+lrem s f g = let (_,r) = ldivQR s f g
+             in r
 
--- lxea :: -- Left extended euclidean algorithm 
---   (Eq k, Num k, Fractional k) =>
---   AUT k -> --         the automorphism s;
---   TwistedPoly k -> -- fst polynomial f;
---   TwistedPoly k -> -- snd polynomial g;
---   [TwistedPoly k] --  list including g.c.d.,
--- --                    bezout coeffs and more ...
--- --                    (d, s_n, s_n+1, t_n, t_n+1)
--- lxea s f g = lxea' f g onep zerov zerov onep
---   where
---     onep = (V [(M 0, 1)])
---     lxea' r0 r1 s0 s1 t0 t1 | degreepoly r1 == -1 =
---                                 let invlc = recip $ lc r0
---                                 in ((*>) invlc) <$> [r0,s0,s1,t0,t1]
---                             | otherwise =
---                                 let (q, r) = lDividePolyQuoRem s r0 r1
---                                     -- s_n+1 = s_n-1 - q_ns_n
---                                     s' = s0 <-> multPoly s q s1
---                                     -- t_n+1 = t_n-1 - q_nt_n
---                                     t' = t0 <-> multPoly s q t1 
---                                 in lxea' r1 r s1 s' t1 t'
+ldivq ::
+  (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
+  AUT d ->
+  TwistedPoly d poly -> -- Fst polynomial f
+  TwistedPoly d poly -> -- Snd polynomial g
+  Bool --    Result: g | f ?
+ldivq s f g = case deg $ lrem s f g of
+  Nothing -> True
+  Just _ -> False
+
+lxea :: -- Left extended euclidean algorithm 
+  (Eq d, Num d, Fractional d,TwistedPolynomialAsType d poly) =>
+  AUT d -> --         the automorphism s;
+  TwistedPoly d poly -> -- fst polynomial f;
+  TwistedPoly d poly -> -- snd polynomial g;
+  [TwistedPoly d poly] -- list including g.c.d.,
+--                        bezout coeffs and more ...
+--                        [d, s_n, s_n+1, t_n, t_n+1]
+lxea s f g = lxea' f g onep zerop zerop onep
+  where
+    onep = fromd $ fromInteger 1
+    zerop = TP $ zerov
+    lxea' r0 r1 s0 s1 t0 t1 = case deg r1 of
+      Nothing -> let invlc = recip $ lc r0
+                     invlcpoly = fromd invlc
+                 -- TODO: Make it an R-module
+                 in ((*) invlcpoly) <$> [r0,s0,s1,t0,t1]
+      Just _ -> let (q, r) = ldivQR s r0 r1
+                    -- s_n+1 = s_n-1 - q_ns_n
+                    s' = s0 - q*s1
+                    -- t_n+1 = t_n-1 - q_nt_n
+                    t' = t0 - q*t1 
+                in lxea' r1 r s1 s' t1 t'
   
 -- rgcd :: -- Calculate the right g.c.d.
 --   (Eq k, Num k, Fractional k) =>
@@ -233,7 +246,7 @@ instance (Eq d, Fractional d, TwistedPolynomialAsType d poly) => Num (TwistedPol
 --                fp = poly f
 --                gp = poly g
 --                d:alfa:beta:alfa':beta':[] = lxea s fp gp
---                llcm = multPoly s alfa' fp
+--                llcm = multP s alfa' fp
 --            in TwistedPolySigma {poly = llcm, sigma = s}
 
 -- annih :: -- Calculate the annihilator of an element h + Rf
@@ -263,23 +276,85 @@ instance (Eq d, Fractional d, TwistedPolynomialAsType d poly) => Num (TwistedPol
 -- boundii f ds = boundii' f ds
 --   where boundii' g [] = g
 --         boundii' g (di:dis) | trace ("boundii' g = " ++ show g ++ " di = " ++ show di) False = undefined 
---                             | (degree (lDivideRem (multiplication g di) g)) == -1 = boundii' g  dis
+--                             | (deg (lrem (multiplication g di) g)) == -1 = boundii' g  dis
 --                             | otherwise = boundii' (llcm (annih g di) g) ds
 
--- -- EXAMPLES   
+-- EXAMPLES   
 
--- frob = (\x -> x*x)
+data TwistedPolynomialF16P1
+instance TwistedPolynomialAsType F16 TwistedPolynomialF16P1 where
+  sigma _ = (\x -> x*x)
+type TPF16P1 = TwistedPoly F16 TwistedPolynomialF16P1
 
--- fl = V $ [(M 2, f16 !! 2), (M 1, f16 !! 10), (M 0, f16 !! 1)]
--- f = TwistedPolySigma {poly=fl, sigma=frob}
+f :: TPF16P1
+f = TP $ nf $ V $ [(M (Just 2), f16 !! 2), (M (Just 1), f16 !! 10), (M (Just 0), f16 !! 1)]
 
--- gl = V $ [(M 1, f16 !! 8), (M 0, f16 !!2)]
--- g = TwistedPolySigma {poly=gl, sigma=frob}
+g :: TPF16P1
+g = TP $ nf $ V $ [(M (Just 1), f16 !! 8), (M (Just 0), f16 !!2)]
 
--- ql = V $ [(M 1, f16 !! 7), (M 0, f16 !! 6)]
--- q = TwistedPolySigma {poly=ql, sigma=frob}
+q :: TPF16P1
+q = TP $ nf $ V $ [(M (Just 1), f16 !! 7), (M (Just 0), f16 !! 6)]
 
--- rl = V $ [(M 0, f16 !! 13)]
--- r = TwistedPolySigma {poly=rl, sigma=frob}
+r :: TPF16P1
+r = TP $ nf $ V $ [(M (Just 0), f16 !! 13)]
+
+data TwistedPolynomialF256P2
+instance TwistedPolynomialAsType F256 TwistedPolynomialF256P2 where
+  sigma _ = (\x -> x^4)
+type TPF256P2 = TwistedPoly F256 TwistedPolynomialF256P2
+
+-- TESTS
+
+-- Testing properties on small examples 
+-- To test properties on this polynomials first you need to generate random samples of this polynomials
+
+-- Generate monomials
+genMon :: Gen Monomial
+genMon = M <$> (arbitrary :: Gen (Maybe Int))
+
+-- Generate elts. of the field F256
+genF256 :: Gen F256
+genF256 = (\x -> f256 !! (abs $ x `rem` 256)) <$> (arbitrary :: Gen Int)
+
+-- Generate pairs of monomial element of F256
+genMonF256 = (,) <$> genMon  <*> genF256
+
+-- sized :: (Int -> Gen a) -> Gen a
+poly256List :: Gen [(Monomial, F256)]
+poly256List = sized $ \n ->
+  frequency
+    [ (1, return [])
+    , (n, (:) <$> genMonF256 <*> poly256List)
+    ]
+
+-- Remove monomials == 0
+remz :: [(Monomial,d)] -> [(Monomial,d)]
+remz = filter (not . mzeroq . fst) 
+
+-- Generate twisted. polynomial with D=256
+polys256 = (TP . nf . V . remz) <$> poly256List
+
+-- Generate a pair of polynomials
+pairPolys :: Gen (TPF256P2, TPF256P2)
+pairPolys = (,) <$> polys256 <*> polys256
+
+-- Test if for q,r in eucl. alg. we have that f = qg + r
+prop_ldivision =
+   forAll pairPolys $ \(f,g) -> let
+  (q,r) = ldivQR (\x -> x^4) f g
+  in case deg g of Just _ -> f == q*g + r
+                   Nothing -> True
+
+-- Test if d left divides f and g
+prop_lxea =
+  forAll pairPolys $ \(f,g) -> let
+  s = (\x -> x^4)
+  [d, alfa, alfa', beta, beta'] = lxea s f g
+  in case deg g of Nothing -> True
+                   Just _ -> ldivq s f d && ldivq s g d
+
+
+
+
 
 
