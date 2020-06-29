@@ -1,10 +1,10 @@
 name:                non-conmutative
 version:             0.1.0.0
-github:              "githubuser/non-conmutative"
+github:              "diegoasterio/non-conmutative"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2020 Author name here"
+author:              "Diego Asterio de Zaballa Rodriguez"
+maintainer:          "diegoasterio.z@gmail.com"
+copyright:           "2020 Diego Asterio de Zaballa Rodriguez"
 
 extra-source-files:
 - README.md
@@ -17,10 +17,16 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/githubuser/non-conmutative#readme>
+description:         Please see the README on GitHub at <https://github.com/diegoasterio/non-conmutative#readme>
 
 dependencies:
 - base >= 4.7 && < 5
+- QuickCheck
+- hspec
+- halg-polynomials
+- halg-galois-fields
+- halg-factor
+- HaskellForMaths
 
 library:
   source-dirs: src

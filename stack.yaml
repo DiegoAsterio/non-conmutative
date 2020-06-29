@@ -17,7 +17,8 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-15.2
+resolver: lts-15.0
+compiler: ghc-8.8
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -40,7 +41,27 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
 extra-deps:
-- HaskellForMaths-0.4.9
+  - HaskellForMaths-0.4.9
+  - git: https://github.com/konn/computational-algebra.git
+    commit: 0afc00aa0dad29b626a5bc1f92369eaffbf793a8
+    subdirs:
+      - computational-algebra
+      - algebraic-prelude
+      - halg-algebraic
+      - halg-algorithms
+      - halg-bridge-singular
+      - halg-core
+      - halg-core-test
+      - halg-galois-fields
+      - halg-heaps
+      - halg-matrices
+      - halg-polyn-parser
+      - halg-polynomials
+      - halg-factor
+  - algebra-4.3.1@sha256:323cf20c508e0b71422b767ff3a89e4188f68aa59b2df9d0fe6e9f9bae7938fb,4129
+  - control-monad-loop-0.1@sha256:2b8d9fbc6e53f2c8f679188952b90f2c69507d1c1efd8867beb64591a22b341c,1106
+  - repa-3.4.1.4@sha256:5c836bc314ea04ac284d21117b361eb95829d793e8f82508535aa0ca04911d9e,3315
+  - unamb-0.2.7@sha256:ce5db0575bca8ca04c9e9dce3ba75b6f9e5ceea834c6ba4fae45aca6fa963334,2385
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

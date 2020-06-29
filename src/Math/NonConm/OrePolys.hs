@@ -6,7 +6,10 @@ import Prelude hiding ( (*>) )
 
 -- Debuggers
 import Debug.Trace
-import Test.QuickCheck
+
+import Algebra.Field.Galois
+import qualified Algebra.Ring.Polynomial.Univariate as UP
+import Algebra.Ring.Polynomial.Factorise
 
 import Math.Core.Field
 import Math.Algebras.VectorSpace
@@ -35,7 +38,7 @@ showVar :: Char -> Int -> String
 showVar c n
   | n==0 = "1"
   | n==1 = [c]
-  | otherwise = [c] ++ show n
+  | otherwise = [c] ++ "^" ++ show n
 
 instance Show Monomial where
   show = showMon 
@@ -80,16 +83,10 @@ mzeroq (M x) = case x of
   Nothing -> True
   Just _ -> False
 
--- instance Semigroup Monomial where
---   (<>) = mmult
-
--- instance Monoid Monomial where
---   mempty = unit
-
 class TwistedPolynomialAsType d poly where
 -- sigma :: CAMBIAR ESTO ?? -> AUT d
   sigma :: (d,poly) -> AUT d
-              
+           
 data TwistedPoly d poly = TP (Vect d (Monomial)) deriving (Eq, Ord)
 
 instance (Show d, Eq d, Num d) => Show (TwistedPoly d poly) where
@@ -158,57 +155,66 @@ fromd d = TP $ V [(M (Just 0), d)]
 
 ldivQR :: -- Left divide two polynomials
   (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
-  AUT d ->
   TwistedPoly d poly -> --               First poly.
   TwistedPoly d poly -> --               Snd poly.
   (TwistedPoly d poly, TwistedPoly d poly) -- Result (q,r)
-ldivQR s f g | deg f < deg g = (TP zerov, f)
-             | otherwise = (l + quo, rem)
-  where mon = mdiv (lm f) (lm g)
-        s' = power s (mdeg mon)
-        l = TP $ V $ [(mon, (lc f) * (recip (s' (lc g))))]
-        l' = l * g
-        f' = f - l'
-        (quo, rem) = ldivQR s f' g
+ldivQR f (g :: TwistedPoly d poly)
+  | deg f < deg g = (TP zerov, f)
+  | otherwise = (l + quo, rem)
+  where
+    s = sigma (undefined :: (d, poly))
+    mon = mdiv (lm f) (lm g)
+    s' = power s (mdeg mon)
+    l = TP $ V $ [(mon, (lc f) * (recip (s' (lc g))))]
+    l' = l * g
+    f' = f - l'
+    (quo, rem) = ldivQR f' g
 
 ldiv :: -- Left quotient of two polynomials
   (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
-  AUT d -> 
   TwistedPoly d poly -> -- Fst polynomial f
   TwistedPoly d poly -> -- Snd polynomial g
   TwistedPoly d poly --    Result: f /_l g
-ldiv s f g = let (q,_) = ldivQR s f g
+ldiv f g = let (q,_) = ldivQR f g
              in q
 
 lrem :: -- Left remainder of two poly.
   (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
-  AUT d ->
   TwistedPoly d poly -> -- Fst polynomial f
   TwistedPoly d poly -> -- Snd polynomial g
   TwistedPoly d poly --    Result: f %_l g
-lrem s f g = let (_,r) = ldivQR s f g
-             in r
+lrem f g = let
+  (_,r) = ldivQR f g
+  in r
 
 ldivq ::
   (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
-  AUT d ->
   TwistedPoly d poly -> -- Fst polynomial f
   TwistedPoly d poly -> -- Snd polynomial g
   Bool --    Result: g | f ?
-ldivq s f g = case deg $ lrem s f g of
+ldivq f g = case deg $ lrem f g of
   Nothing -> True
   Just _ -> False
 
+monic :: -- Makes a polynomial monic
+  (Num d, Eq d, Fractional d, TwistedPolynomialAsType d poly) =>
+  TwistedPoly d poly ->
+  TwistedPoly d poly
+monic f = let
+  invlc = recip $ lc f
+  invlcpoly = fromd invlc
+  in invlcpoly * f
+
 lxea :: -- Left extended euclidean algorithm 
   (Eq d, Num d, Fractional d,TwistedPolynomialAsType d poly) =>
-  AUT d -> --         the automorphism s;
   TwistedPoly d poly -> -- fst polynomial f;
   TwistedPoly d poly -> -- snd polynomial g;
   [TwistedPoly d poly] -- list including g.c.d.,
 --                        bezout coeffs and more ...
 --                        [d, s_n, s_n+1, t_n, t_n+1]
-lxea s f g = lxea' f g onep zerop zerop onep
+lxea (f :: TwistedPoly d poly) g = lxea' f g onep zerop zerop onep
   where
+    s = sigma (undefined :: (d, poly))
     onep = fromd $ fromInteger 1
     zerop = TP $ zerov
     lxea' r0 r1 s0 s1 t0 t1 = case deg r1 of
@@ -216,145 +222,54 @@ lxea s f g = lxea' f g onep zerop zerop onep
                      invlcpoly = fromd invlc
                  -- TODO: Make it an R-module
                  in ((*) invlcpoly) <$> [r0,s0,s1,t0,t1]
-      Just _ -> let (q, r) = ldivQR s r0 r1
+      Just _ -> let (q, r) = ldivQR r0 r1
                     -- s_n+1 = s_n-1 - q_ns_n
                     s' = s0 - q*s1
                     -- t_n+1 = t_n-1 - q_nt_n
                     t' = t0 - q*t1 
                 in lxea' r1 r s1 s' t1 t'
   
--- rgcd :: -- Calculate the right g.c.d.
---   (Eq k, Num k, Fractional k) =>
---   TwistedPolySigma k -> -- Fst. poly. f
---   TwistedPolySigma k -> -- Snd. poly. g
---   (TwistedPolySigma k, TwistedPolySigma k, TwistedPolySigma k) -- ((f,g)_r, s_n, t_n)
--- rgcd f g = let s = sigma f
---                fp = poly f
---                gp = poly g
---                d:alfa:beta:alfa':beta':[] = lxea s fp gp
---             in (TwistedPolySigma {poly = d, sigma = s},
---                 TwistedPolySigma {poly = alfa, sigma = s},
---                 TwistedPolySigma {poly = beta, sigma = s})
+rgcd :: -- Calculate the right g.c.d.
+  (Eq d, Num d, Fractional d, TwistedPolynomialAsType d poly) =>
+  TwistedPoly d poly -> -- Fst. poly. f
+  TwistedPoly d poly -> -- Snd. poly. g
+  [TwistedPoly d poly ] -- [(f,g)_r: s_n: t_n]
+rgcd f g = let d:alfa:alfa':beta:beta':[] = lxea f g
+             in [d, alfa, beta]
 
--- llcm :: -- Calculate the left l.c.m.
---   (Eq k, Num k, Fractional k) =>
---   TwistedPolySigma k -> -- Fst poly f
---   TwistedPolySigma k -> -- Snd poly g
---   TwistedPolySigma k --    [f,g]_l = s_n+1f = -t_n+1g
+llcm :: -- Calculate the left l.c.m.
+  (Eq d, Num d, Fractional d, TwistedPolynomialAsType d poly) =>
+  TwistedPoly d poly -> -- Fst poly f
+  TwistedPoly d poly -> -- Snd poly g
+  TwistedPoly d poly --    [f,g]_l = s_n+1f = -t_n+1g
 
--- llcm f g = let s = sigma f
---                fp = poly f
---                gp = poly g
---                d:alfa:beta:alfa':beta':[] = lxea s fp gp
---                llcm = multP s alfa' fp
---            in TwistedPolySigma {poly = llcm, sigma = s}
+llcm f g = let d:alfa:alfa':beta:beta':[] = lxea f g
+             in alfa'*f
 
--- annih :: -- Calculate the annihilator of an element h + Rf
---   (Eq k, Num k, Fractional k) =>
---   TwistedPolySigma k -> -- Polynomial f in the construction R/Rf
---   TwistedPolySigma k -> -- Polynomial h in R
---   TwistedPolySigma k -- Result: f_h such that f_hf = [f,h]_l
--- annih f h = let s = sigma f
---                 fp = poly f
---                 hp = poly h
---                 d:alfa:beta:alfa':beta':xs = lxea s fp hp
---                 annih' = beta'
---             in TwistedPolySigma {poly = annih', sigma = s}
+annih :: -- Calculate the annihilator of an element h + Rf
+  (Eq d, Num d, Fractional d, TwistedPolynomialAsType d poly) =>
+  TwistedPoly d poly -> -- Polynomial f in the construction R/Rf
+  TwistedPoly d poly -> -- Polynomial h in R
+  TwistedPoly d poly -- Result: f_h such that f_hh = [f,h]_l
+annih f h = let d:alfa:alfa':beta:beta':[] = lxea f h
+            in -beta'
 
--- boundi :: -- Calculate the bound of a polynomial f (i)
---   (Eq k, Num k, Fractional k) =>
---   TwistedPolySigma k -> -- Polynomial f
---   [TwistedPolySigma k] -> -- List of generators of R cs
---   TwistedPolySigma k -- Result: f^*
--- boundi f cs = foldr (\c g -> llcm (annih f c) g) f cs
+boundi :: -- Calculate the bound of a polynomial f (i)
+  (Eq d, Num d, Fractional d, TwistedPolynomialAsType d poly) =>
+  TwistedPoly d poly -> -- Polynomial f
+  [TwistedPoly d poly] -> -- List of generators of R cs
+  TwistedPoly d poly -- Result: f^*
+boundi f cs = monic $ foldr (\c g -> llcm (annih f c) g) f cs
+                    
 
--- boundii :: -- Calculate the bound of a polynomial f (ii)
---   (Show k, Eq k, Num k, Fractional k) =>
---   TwistedPolySigma k -> -- Polynomial f
---   [TwistedPolySigma k] -> -- List of generators of R ds
---   TwistedPolySigma k -- Result: f^*
--- boundii f ds = boundii' f ds
---   where boundii' g [] = g
---         boundii' g (di:dis) | trace ("boundii' g = " ++ show g ++ " di = " ++ show di) False = undefined 
---                             | (deg (lrem (multiplication g di) g)) == -1 = boundii' g  dis
---                             | otherwise = boundii' (llcm (annih g di) g) ds
-
--- EXAMPLES   
-
-data TwistedPolynomialF16P1
-instance TwistedPolynomialAsType F16 TwistedPolynomialF16P1 where
-  sigma _ = (\x -> x*x)
-type TPF16P1 = TwistedPoly F16 TwistedPolynomialF16P1
-
-f :: TPF16P1
-f = TP $ nf $ V $ [(M (Just 2), f16 !! 2), (M (Just 1), f16 !! 10), (M (Just 0), f16 !! 1)]
-
-g :: TPF16P1
-g = TP $ nf $ V $ [(M (Just 1), f16 !! 8), (M (Just 0), f16 !!2)]
-
-q :: TPF16P1
-q = TP $ nf $ V $ [(M (Just 1), f16 !! 7), (M (Just 0), f16 !! 6)]
-
-r :: TPF16P1
-r = TP $ nf $ V $ [(M (Just 0), f16 !! 13)]
-
-data TwistedPolynomialF256P2
-instance TwistedPolynomialAsType F256 TwistedPolynomialF256P2 where
-  sigma _ = (\x -> x^4)
-type TPF256P2 = TwistedPoly F256 TwistedPolynomialF256P2
-
--- TESTS
-
--- Testing properties on small examples 
--- To test properties on this polynomials first you need to generate random samples of this polynomials
-
--- Generate monomials
-genMon :: Gen Monomial
-genMon = M <$> (arbitrary :: Gen (Maybe Int))
-
--- Generate elts. of the field F256
-genF256 :: Gen F256
-genF256 = (\x -> f256 !! (abs $ x `rem` 256)) <$> (arbitrary :: Gen Int)
-
--- Generate pairs of monomial element of F256
-genMonF256 = (,) <$> genMon  <*> genF256
-
--- sized :: (Int -> Gen a) -> Gen a
-poly256List :: Gen [(Monomial, F256)]
-poly256List = sized $ \n ->
-  frequency
-    [ (1, return [])
-    , (n, (:) <$> genMonF256 <*> poly256List)
-    ]
-
--- Remove monomials == 0
-remz :: [(Monomial,d)] -> [(Monomial,d)]
-remz = filter (not . mzeroq . fst) 
-
--- Generate twisted. polynomial with D=256
-polys256 = (TP . nf . V . remz) <$> poly256List
-
--- Generate a pair of polynomials
-pairPolys :: Gen (TPF256P2, TPF256P2)
-pairPolys = (,) <$> polys256 <*> polys256
-
--- Test if for q,r in eucl. alg. we have that f = qg + r
-prop_ldivision =
-   forAll pairPolys $ \(f,g) -> let
-  (q,r) = ldivQR (\x -> x^4) f g
-  in case deg g of Just _ -> f == q*g + r
-                   Nothing -> True
-
--- Test if d left divides f and g
-prop_lxea =
-  forAll pairPolys $ \(f,g) -> let
-  s = (\x -> x^4)
-  [d, alfa, alfa', beta, beta'] = lxea s f g
-  in case deg g of Nothing -> True
-                   Just _ -> ldivq s f d && ldivq s g d
-
-
-
-
+boundii :: -- Calculate the bound of a polynomial f (ii)
+  (Show d, Eq d, Num d, Fractional d, TwistedPolynomialAsType d poly) =>
+  TwistedPoly d poly -> -- Polynomial f
+  [TwistedPoly d poly] -> -- List of generators of R ds
+  TwistedPoly d poly -- Result: f^*
+boundii f ds = monic $ boundii' f ds
+  where boundii' g [] = g
+        boundii' g (di:dis) = case (deg (lrem (g*di) g)) of Nothing -> boundii' g  dis
+                                                            Just _ -> boundii' (llcm (annih g di) g) ds
 
 
