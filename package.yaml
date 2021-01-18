@@ -23,9 +23,13 @@ dependencies:
 - base >= 4.7 && < 5
 - QuickCheck
 - hspec
+- sort
+- algebra
+- containers
 - halg-polynomials
 - halg-galois-fields
 - halg-factor
+- computational-algebra
 - HaskellForMaths
 
 library:

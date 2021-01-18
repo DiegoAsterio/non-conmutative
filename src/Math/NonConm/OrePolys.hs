@@ -3,6 +3,8 @@
 
 module Math.NonConm.OrePolys where
 import Prelude hiding ( (*>) )
+import qualified Data.Sort as S
+
 
 -- Debuggers
 import Debug.Trace
@@ -90,7 +92,7 @@ class TwistedPolynomialAsType d poly where
 data TwistedPoly d poly = TP (Vect d (Monomial)) deriving (Eq, Ord)
 
 instance (Show d, Eq d, Num d) => Show (TwistedPoly d poly) where
-  show (TP f) = show f
+  show (TP f) = show $ nf f
 
 multL :: -- Multiply two lists, each list represents a twisted polynomial
   (Num d) =>
@@ -127,6 +129,23 @@ deg :: -- Deg of a polynomial
   Maybe Int --              Result: deg(f) = n
 deg (TP f)= case nf f of V [] -> Nothing
                          V l1 -> Just $ maximum $ map (mdeg . fst) l1
+
+coeffs ::   (Eq d, Num d) =>
+  TwistedPoly d poly -> -- Polynomial f
+  [(Int, d)]
+coeffs tf = let TP f = tf
+                V fl = nf f
+            in (\(x,y) -> (mdeg x, y)) <$> (filter  (not . mzeroq . fst) fl)
+
+getCoeffs :: (Eq d, Num d) =>
+  TwistedPoly d poly -> -- Polynomial f
+  [d]
+getCoeffs f = let ds = S.sortOn fst $ coeffs f
+                  i0 = fst $ head ds
+              in  replicate i0 0 ++ coeffList' ds
+  where coeffList' ((i,d):(j,e):xs) = d:(replicate (abs (j-i) - 1) 0) ++ coeffList' ((j,e):xs)
+        coeffList' ((i,d):[]) = [d]
+        coeffList' [] = []
 
 lt :: -- leader term of a polynomial 
   (Eq d, Num d) =>
